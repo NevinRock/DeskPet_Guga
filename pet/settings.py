@@ -11,8 +11,19 @@ class PetSettings:
     x: int | None = None
     y: int | None = None
     size: int = 210
+    language: str = "zh_CN"
     adopted_at: str | None = None
     last_fed_at: str | None = None
+    git_auto_push_enabled: bool = False
+    git_repo_path: str = ""
+    git_remote_url: str = ""
+    git_push_time: str = "23:00"
+    git_commit_message: str = "chore: automatic backup"
+    git_last_attempt_date: str | None = None
+    git_last_push_at: str | None = None
+    git_last_push_status: str = "尚未执行"
+    calendar_server_url: str = "https://nevinrock.space"
+    calendar_person_id: str = ""
 
 
 class SettingsStore:

@@ -1,5 +1,5 @@
 #define MyAppName "Guga Desktop Pet"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.4.0"
 #define MyAppPublisher "Nevin"
 #define MyAppExeName "Guga.exe"
 
