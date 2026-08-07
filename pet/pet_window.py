@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QLabel,
     QMenu,
+    QMessageBox,
     QPushButton,
     QSlider,
     QVBoxLayout,
@@ -20,12 +21,17 @@ from PySide6.QtWidgets import (
 
 from .action_manager import ActionManager, PetState
 from .animation_manager import AnimationManager
+from .git_push import GitPushDialog, GitPushRunner
+from .i18n import LANGUAGES, tr
 from .interaction import opaque_at
+from .schedule import ScheduleDialog
 from .settings import SettingsStore
+
+APP_VERSION = "1.4.0"
 
 
 class ActionMenu(QFrame):
-    def __init__(self, trigger) -> None:
+    def __init__(self, trigger, language: str) -> None:
         super().__init__(None, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
         self.setObjectName("actionMenu")
         self.setStyleSheet("#actionMenu { background: #ffffff; border: 1px solid #e8dfe9; border-radius: 14px; } QPushButton { border: 0; padding: 9px 16px; text-align: left; border-radius: 9px; font-size: 13px; } QPushButton:hover { background: #f6ecf7; }")
@@ -37,39 +43,41 @@ class ActionMenu(QFrame):
         self.hunger_label.setStyleSheet("padding: 0 10px 6px; color: #b04c63; font-size: 12px;")
         layout.addWidget(self.care_label)
         layout.addWidget(self.hunger_label)
-        for label, action in [("👋  挥手", "wave"), ("🐧  摇一摇", "shake"), ("🚶  走两步", "walk"), ("💭  想一想", "think"), ("🕺  跳一跳", "jump"), ("🍴  吃东西  ›", "food_menu"), ("🎲  随机动作", "random")]:
-            button = QPushButton(label)
+        self.language = language
+        for key, action in [("action_wave", "wave"), ("action_shake", "shake"), ("action_walk", "walk"), ("action_think", "think"), ("action_jump", "jump"), ("action_food", "food_menu"), ("action_random", "random")]:
+            button = QPushButton(tr(language, key))
             button.clicked.connect(lambda checked=False, value=action: trigger(value))
             layout.addWidget(button)
 
     def set_status(self, care_days: int, hungry: bool) -> None:
-        self.care_label.setText(f"🐣  已陪伴 Guga {care_days} 天")
-        self.hunger_label.setText("🍽️  Guga 饿了，喂点东西吧" if hungry else "🍽️  Guga 现在吃得饱饱的")
+        self.care_label.setText(tr(self.language, "care_days", days=care_days))
+        self.hunger_label.setText(tr(self.language, "hungry" if hungry else "full"))
 
 
 class FoodMenu(QFrame):
-    def __init__(self, trigger) -> None:
+    def __init__(self, trigger, language: str) -> None:
         super().__init__(None, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
         self.setObjectName("foodMenu")
         self.setStyleSheet("#foodMenu { background: #ffffff; border: 1px solid #e8dfe9; border-radius: 14px; } QPushButton { border: 0; padding: 9px 16px; text-align: left; border-radius: 9px; font-size: 13px; } QPushButton:hover { background: #f6ecf7; }")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(7, 7, 7, 7)
-        for label, action in [("🥤  喝可乐", "drink_cola"), ("🍔  吃汉堡", "eat_burger"), ("🍰  吃蛋糕", "eat_cake"), ("☕  喝咖啡", "drink_coffee")]:
-            button = QPushButton(label)
+        for key, action in [("food_cola", "drink_cola"), ("food_burger", "eat_burger"), ("food_cake", "eat_cake"), ("food_coffee", "drink_coffee")]:
+            button = QPushButton(tr(language, key))
             button.clicked.connect(lambda checked=False, value=action: trigger(value))
             layout.addWidget(button)
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, current_size: int, preview, parent: QWidget) -> None:
+    def __init__(self, current_size: int, preview, language: str, parent: QWidget) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Guga 设置")
+        self.language = language
+        self.setWindowTitle(tr(language, "pet_settings"))
         self.setMinimumWidth(300)
         self.original_size = current_size
         self.preview = preview
         self.setStyleSheet("QDialog { background: white; } QLabel { font-size: 13px; } QSlider::groove:horizontal { height: 6px; background: #eadfea; border-radius: 3px; } QSlider::handle:horizontal { width: 18px; margin: -6px 0; background: #8d5b91; border-radius: 9px; }")
         layout = QVBoxLayout(self)
-        title = QLabel("桌宠大小")
+        title = QLabel(tr(language, "pet_size"))
         self.value_label = QLabel()
         self.value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.slider = QSlider(Qt.Orientation.Horizontal)
@@ -79,6 +87,8 @@ class SettingsDialog(QDialog):
         self.slider.setValue(current_size)
         self.slider.valueChanged.connect(self._preview_size)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(tr(language, "ok"))
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(tr(language, "cancel"))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(title)
@@ -88,7 +98,7 @@ class SettingsDialog(QDialog):
         self._preview_size(current_size)
 
     def _preview_size(self, value: int) -> None:
-        self.value_label.setText(f"{value} px（拖动滑块实时预览）")
+        self.value_label.setText(tr(self.language, "size_preview", size=value))
         self.preview(value)
 
     def reject(self) -> None:
@@ -97,7 +107,7 @@ class SettingsDialog(QDialog):
 
 
 class AboutDialog(QDialog):
-    def __init__(self, care_days: int, parent: QWidget) -> None:
+    def __init__(self, care_days: int, language: str, parent: QWidget) -> None:
         super().__init__(parent)
         self.setWindowTitle("About Guga")
         self.setFixedWidth(330)
@@ -115,16 +125,20 @@ class AboutDialog(QDialog):
 
         title = QLabel("Guga Desktop Pet")
         title.setObjectName("title")
-        creator = QLabel("Created by @Nevin, 2026.")
+        version = QLabel(f"Version {APP_VERSION}")
+        version.setObjectName("meta")
+        creator = QLabel(tr(language, "created_by"))
         creator.setObjectName("meta")
-        license_label = QLabel("Licensed under the MIT License.")
+        license_label = QLabel(tr(language, "mit_license"))
         license_label.setObjectName("meta")
-        care_label = QLabel(f"Together with you for {care_days} day{'s' if care_days != 1 else ''}.")
+        care_label = QLabel(tr(language, "together_days", days=care_days))
         care_label.setObjectName("meta")
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(tr(language, "ok"))
         buttons.accepted.connect(self.accept)
 
         layout.addWidget(title)
+        layout.addWidget(version)
         layout.addWidget(creator)
         layout.addWidget(license_label)
         layout.addWidget(care_label)
@@ -146,6 +160,9 @@ class PetWindow(QWidget):
         self.setMouseTracking(True)
         self.store = SettingsStore()
         self.settings = self.store.load()
+        if self.settings.language not in LANGUAGES:
+            self.settings.language = "zh_CN"
+            self.store.save(self.settings)
         self._ensure_care_timestamps()
         self.size_px = self.settings.size
         self.setFixedSize(self.size_px, self.size_px)
@@ -164,6 +181,14 @@ class PetWindow(QWidget):
         self.hunger_timer.timeout.connect(self._update_hunger)
         self.hunger_timer.start()
         self._update_hunger()
+        self.git_push_runner = GitPushRunner(self)
+        self.git_push_runner.finished.connect(self._git_push_finished)
+        self.git_push_timer = QTimer(self)
+        self.git_push_timer.setInterval(30000)
+        self.git_push_timer.timeout.connect(self._check_auto_git_push)
+        self.git_push_timer.start()
+        self.git_push_was_manual = False
+        QTimer.singleShot(3000, self._check_auto_git_push)
         self.press_global: QPoint | None = None
         self.start_pos: QPoint | None = None
         self.dragging = False
@@ -243,7 +268,7 @@ class PetWindow(QWidget):
 
     def _show_action_menu(self) -> None:
         if self.menu is None:
-            self.menu = ActionMenu(self._select_action)
+            self.menu = ActionMenu(self._select_action, self.settings.language)
         self.menu.set_status(self.care_days(), self.actions.hungry)
         self.menu.adjustSize()
         self.menu.move(self.pos() + QPoint(self.width() - self.menu.width(), -self.menu.height() - 8))
@@ -268,7 +293,7 @@ class PetWindow(QWidget):
 
     def _show_food_menu(self) -> None:
         if self.food_menu is None:
-            self.food_menu = FoodMenu(self._select_food_action)
+            self.food_menu = FoodMenu(self._select_food_action, self.settings.language)
         self.food_menu.adjustSize()
         self.food_menu.move(self.pos() + QPoint(self.width() - self.food_menu.width(), -self.food_menu.height() - 8))
         self.food_menu.show()
@@ -333,34 +358,143 @@ class PetWindow(QWidget):
         animation.start()
 
     def _show_system_menu(self, position: QPoint) -> None:
+        self._build_system_menu().exec(position)
+
+    def _build_system_menu(self) -> QMenu:
         menu = QMenu(self)
         menu.setStyleSheet("QMenu { background: white; border: 1px solid #e8dfe9; border-radius: 10px; padding: 6px; } QMenu::item { padding: 8px 25px; border-radius: 7px; } QMenu::item:selected { background: #f6ecf7; }")
-        reset = QAction("重置位置", menu)
+        reset = QAction(tr(self.settings.language, "menu_reset"), menu)
         reset.triggered.connect(self._reset_position)
-        settings_action = QAction("设置", menu)
+        language = self.settings.language
+        settings_menu = QMenu(tr(language, "menu_settings"), menu)
+        menu.addMenu(settings_menu)
+        settings_action = QAction(tr(language, "menu_appearance"), settings_menu)
         settings_action.triggered.connect(self._show_settings)
-        about = QAction("关于 Guga", menu)
+        about = QAction(tr(language, "menu_version"), settings_menu)
         about.triggered.connect(self._show_about)
-        quit_action = QAction("退出桌宠", menu)
+        git_push = QAction(tr(language, "menu_git_push"), settings_menu)
+        git_push.triggered.connect(self._show_git_push_settings)
+        schedule = QAction(tr(language, "menu_schedule"), settings_menu)
+        schedule.triggered.connect(self._show_schedule)
+        language_menu = QMenu("Language", settings_menu)
+        for code, label in LANGUAGES.items():
+            language_action = QAction(label, language_menu)
+            language_action.setCheckable(True)
+            language_action.setChecked(code == language)
+            language_action.triggered.connect(lambda checked=False, value=code: self._set_language(value))
+            language_menu.addAction(language_action)
+        quit_action = QAction(tr(language, "menu_quit"), menu)
         quit_action.triggered.connect(QApplication.quit)
-        menu.addAction(settings_action)
+        settings_menu.addAction(settings_action)
+        settings_menu.addAction(about)
+        settings_menu.addSeparator()
+        settings_menu.addAction(schedule)
+        settings_menu.addAction(git_push)
+        settings_menu.addSeparator()
+        settings_menu.addMenu(language_menu)
         menu.addAction(reset)
-        care = menu.addAction(f"已陪伴 Guga {self.care_days()} 天" + (" · 饿了" if self.actions.hungry else ""))
+        care = menu.addAction(tr(language, "menu_care", days=self.care_days(), hungry=tr(language, "menu_hungry_suffix") if self.actions.hungry else ""))
         care.setEnabled(False)
         menu.addSeparator()
-        menu.addAction(about)
         menu.addAction(quit_action)
-        menu.exec(position)
+        return menu
 
     def _show_settings(self) -> None:
-        dialog = SettingsDialog(self.size_px, self.set_pet_size, self)
+        dialog = SettingsDialog(self.size_px, self.set_pet_size, self.settings.language, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.settings.size = self.size_px
             self.settings.x, self.settings.y = self.x(), self.y()
             self.store.save(self.settings)
 
     def _show_about(self) -> None:
-        AboutDialog(self.care_days(), self).exec()
+        AboutDialog(self.care_days(), self.settings.language, self).exec()
+
+    def _show_git_push_settings(self) -> None:
+        dialog = GitPushDialog(self.settings, self, self.settings.language)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        old_schedule = (
+            self.settings.git_auto_push_enabled,
+            self.settings.git_repo_path,
+            self.settings.git_remote_url,
+            self.settings.git_push_time,
+            self.settings.git_commit_message,
+        )
+        self.settings.git_auto_push_enabled = dialog.enabled.isChecked()
+        self.settings.git_repo_path = dialog.repo_path.text().strip()
+        self.settings.git_remote_url = dialog.remote_url.text().strip()
+        self.settings.git_push_time = dialog.push_time.time().toString("HH:mm")
+        self.settings.git_commit_message = dialog.commit_message.text().strip()
+        new_schedule = (
+            self.settings.git_auto_push_enabled,
+            self.settings.git_repo_path,
+            self.settings.git_remote_url,
+            self.settings.git_push_time,
+            self.settings.git_commit_message,
+        )
+        if new_schedule != old_schedule:
+            self.settings.git_last_attempt_date = None
+        self.store.save(self.settings)
+        if dialog.run_immediately:
+            self._start_git_push(manual=True)
+
+    def _show_schedule(self) -> None:
+        dialog = ScheduleDialog(self.settings, self, self.settings.language)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.settings.calendar_server_url = dialog.server_url.text().strip().rstrip("/")
+            self.settings.calendar_person_id = dialog.person_id.text().strip()
+            self.store.save(self.settings)
+
+    def _check_auto_git_push(self) -> None:
+        if not self.settings.git_auto_push_enabled or self.git_push_runner.running:
+            return
+        now = datetime.now().astimezone()
+        if self.settings.git_last_attempt_date == now.date().isoformat():
+            return
+        if now.strftime("%H:%M") >= self.settings.git_push_time:
+            self._start_git_push(manual=False)
+
+    def _start_git_push(self, manual: bool) -> None:
+        if self.git_push_runner.running:
+            if manual:
+                QMessageBox.information(self, tr(self.settings.language, "git_title"), tr(self.settings.language, "git_busy"))
+            return
+        self.git_push_was_manual = manual
+        self.settings.git_last_attempt_date = datetime.now().astimezone().date().isoformat()
+        self.settings.git_last_push_status = tr(self.settings.language, "git_running")
+        self.store.save(self.settings)
+        self.git_push_runner.start(
+            self.settings.git_repo_path,
+            self.settings.git_remote_url,
+            self.settings.git_commit_message,
+            self.settings.language,
+        )
+
+    def _git_push_finished(self, success: bool, message: str) -> None:
+        now = datetime.now().astimezone()
+        self.settings.git_last_push_at = now.isoformat(timespec="seconds")
+        self.settings.git_last_push_status = tr(self.settings.language, "status_success" if success else "status_failure") + message
+        self.store.save(self.settings)
+        if self.git_push_was_manual:
+            if success:
+                QMessageBox.information(self, tr(self.settings.language, "git_done_title"), message)
+            else:
+                QMessageBox.warning(self, tr(self.settings.language, "git_failed_title"), message)
+        self.git_push_was_manual = False
+
+    def _set_language(self, language: str) -> None:
+        if language not in LANGUAGES or language == self.settings.language:
+            return
+        self.settings.language = language
+        self.store.save(self.settings)
+        if self.menu is not None:
+            self.menu.close()
+            self.menu.deleteLater()
+            self.menu = None
+        if self.food_menu is not None:
+            self.food_menu.close()
+            self.food_menu.deleteLater()
+            self.food_menu = None
 
     def _reset_position(self) -> None:
         self.settings.x = None

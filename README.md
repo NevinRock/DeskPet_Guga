@@ -19,6 +19,10 @@ It is a transparent, always-on-top PySide6 application that runs locally without
 - Hunger state every 30 minutes until Guga is fed
 - Food submenu with cola, hamburger, cake, and coffee animations
 - Windows installer with an optional start-at-login shortcut
+- Nested settings menu with version details
+- Optional scheduled Git add/commit/push for a selected local repository
+- Calendar planning from the desktop pet through the Nevin calendar subscription service
+- Persistent Chinese, English, and Japanese interface switching
 
 ## Run from source
 
