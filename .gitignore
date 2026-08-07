@@ -4,12 +4,14 @@ __pycache__/
 
 build/
 dist/
+installer-output/
 *.spec
 
 # Image-generation sources and QA artifacts; runtime frames remain tracked.
 assets/generated-strips/
 assets/repairs/
 assets/qa-generated-v2.png
+assets/food-actions-qa.jpg
 
 # Superseded or rejected animation sets.
 assets/actions/idle/

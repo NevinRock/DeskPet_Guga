@@ -15,6 +15,10 @@ It is a transparent, always-on-top PySide6 application that runs locally without
 - Drag-to-move interaction
 - Live pet-size adjustment from 120 to 320 px
 - Multi-monitor-aware default placement
+- Persistent care-day counter
+- Hunger state every 30 minutes until Guga is fed
+- Food submenu with cola, hamburger, cake, and coffee animations
+- Windows installer with an optional start-at-login shortcut
 
 ## Run from source
 
@@ -27,7 +31,12 @@ python main.py
 
 ## Build
 
-Run `build.bat` to create a windowed standalone executable at `dist\Guga.exe`.
+Run `build.bat` to create:
+
+- `dist\Guga.exe`: the portable standalone executable
+- `installer-output\Guga-Desktop-Pet-Setup.exe`: the Windows installer (requires Inno Setup 6)
+
+The installer includes a checked-by-default option to launch Guga automatically when the current user signs in.
 
 ## License
 

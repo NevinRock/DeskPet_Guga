@@ -11,6 +11,8 @@ class PetSettings:
     x: int | None = None
     y: int | None = None
     size: int = 210
+    adopted_at: str | None = None
+    last_fed_at: str | None = None
 
 
 class SettingsStore:

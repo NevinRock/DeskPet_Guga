@@ -9,6 +9,7 @@ from .animation_manager import AnimationManager
 
 class PetState(Enum):
     IDLE = auto()
+    HUNGRY = auto()
     TOUCHED = auto()
     ACTION = auto()
     DRAGGING = auto()
@@ -21,12 +22,18 @@ class ActionManager(QObject):
         super().__init__()
         self.animation = animation
         self.state = PetState.IDLE
+        self.hungry = False
         self.animation.animation_finished.connect(self._finished)
 
     def start_idle(self) -> None:
-        self.state = PetState.IDLE
+        self.state = PetState.HUNGRY if self.hungry else PetState.IDLE
         self.state_changed.emit(self.state)
-        self.animation.play("idle")
+        self.animation.play("hungry" if self.hungry else "idle")
+
+    def set_hungry(self, hungry: bool, play: bool = True) -> None:
+        self.hungry = hungry
+        if play and self.state is not PetState.DRAGGING:
+            self.start_idle()
 
     def touch(self) -> None:
         if self.state is PetState.IDLE:

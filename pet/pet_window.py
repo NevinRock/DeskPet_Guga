@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from datetime import datetime, timedelta, timezone
 
 from PySide6.QtCore import QPoint, QTimer, Qt, QVariantAnimation
 from PySide6.QtGui import QAction, QCursor, QMouseEvent, QPixmap
@@ -20,7 +21,7 @@ from PySide6.QtWidgets import (
 from .action_manager import ActionManager, PetState
 from .animation_manager import AnimationManager
 from .interaction import opaque_at
-from .settings import PetSettings, SettingsStore
+from .settings import SettingsStore
 
 
 class ActionMenu(QFrame):
@@ -30,7 +31,30 @@ class ActionMenu(QFrame):
         self.setStyleSheet("#actionMenu { background: #ffffff; border: 1px solid #e8dfe9; border-radius: 14px; } QPushButton { border: 0; padding: 9px 16px; text-align: left; border-radius: 9px; font-size: 13px; } QPushButton:hover { background: #f6ecf7; }")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(7, 7, 7, 7)
-        for label, action in [("👋  挥手", "wave"), ("🐧  摇一摇", "shake"), ("🚶  走两步", "walk"), ("💭  想一想", "think"), ("🕺  跳一跳", "jump"), ("🎲  随机动作", "random")]:
+        self.care_label = QLabel()
+        self.care_label.setStyleSheet("padding: 6px 10px 2px; color: #6f6370; font-size: 12px; font-weight: 600;")
+        self.hunger_label = QLabel()
+        self.hunger_label.setStyleSheet("padding: 0 10px 6px; color: #b04c63; font-size: 12px;")
+        layout.addWidget(self.care_label)
+        layout.addWidget(self.hunger_label)
+        for label, action in [("👋  挥手", "wave"), ("🐧  摇一摇", "shake"), ("🚶  走两步", "walk"), ("💭  想一想", "think"), ("🕺  跳一跳", "jump"), ("🍴  吃东西  ›", "food_menu"), ("🎲  随机动作", "random")]:
+            button = QPushButton(label)
+            button.clicked.connect(lambda checked=False, value=action: trigger(value))
+            layout.addWidget(button)
+
+    def set_status(self, care_days: int, hungry: bool) -> None:
+        self.care_label.setText(f"🐣  已陪伴 Guga {care_days} 天")
+        self.hunger_label.setText("🍽️  Guga 饿了，喂点东西吧" if hungry else "🍽️  Guga 现在吃得饱饱的")
+
+
+class FoodMenu(QFrame):
+    def __init__(self, trigger) -> None:
+        super().__init__(None, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setObjectName("foodMenu")
+        self.setStyleSheet("#foodMenu { background: #ffffff; border: 1px solid #e8dfe9; border-radius: 14px; } QPushButton { border: 0; padding: 9px 16px; text-align: left; border-radius: 9px; font-size: 13px; } QPushButton:hover { background: #f6ecf7; }")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(7, 7, 7, 7)
+        for label, action in [("🥤  喝可乐", "drink_cola"), ("🍔  吃汉堡", "eat_burger"), ("🍰  吃蛋糕", "eat_cake"), ("☕  喝咖啡", "drink_coffee")]:
             button = QPushButton(label)
             button.clicked.connect(lambda checked=False, value=action: trigger(value))
             layout.addWidget(button)
@@ -73,7 +97,7 @@ class SettingsDialog(QDialog):
 
 
 class AboutDialog(QDialog):
-    def __init__(self, parent: QWidget) -> None:
+    def __init__(self, care_days: int, parent: QWidget) -> None:
         super().__init__(parent)
         self.setWindowTitle("About Guga")
         self.setFixedWidth(330)
@@ -95,12 +119,15 @@ class AboutDialog(QDialog):
         creator.setObjectName("meta")
         license_label = QLabel("Licensed under the MIT License.")
         license_label.setObjectName("meta")
+        care_label = QLabel(f"Together with you for {care_days} day{'s' if care_days != 1 else ''}.")
+        care_label.setObjectName("meta")
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
         buttons.accepted.connect(self.accept)
 
         layout.addWidget(title)
         layout.addWidget(creator)
         layout.addWidget(license_label)
+        layout.addWidget(care_label)
         layout.addSpacing(8)
         layout.addWidget(buttons)
 
@@ -108,6 +135,8 @@ class AboutDialog(QDialog):
 class PetWindow(QWidget):
     DRAG_THRESHOLD = 7
     TOUCH_COOLDOWN_MS = 1500
+    HUNGER_INTERVAL = timedelta(minutes=30)
+    FOOD_ACTIONS = frozenset({"drink_cola", "eat_burger", "eat_cake", "drink_coffee"})
 
     def __init__(self) -> None:
         flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint
@@ -117,6 +146,7 @@ class PetWindow(QWidget):
         self.setMouseTracking(True)
         self.store = SettingsStore()
         self.settings = self.store.load()
+        self._ensure_care_timestamps()
         self.size_px = self.settings.size
         self.setFixedSize(self.size_px, self.size_px)
 
@@ -129,11 +159,17 @@ class PetWindow(QWidget):
         self.actions = ActionManager(self.animation)
         self.animation.frame_changed.connect(self._set_frame)
         self.actions.start_idle()
+        self.hunger_timer = QTimer(self)
+        self.hunger_timer.setInterval(5000)
+        self.hunger_timer.timeout.connect(self._update_hunger)
+        self.hunger_timer.start()
+        self._update_hunger()
         self.press_global: QPoint | None = None
         self.start_pos: QPoint | None = None
         self.dragging = False
         self.last_touch = 0
         self.menu: ActionMenu | None = None
+        self.food_menu: FoodMenu | None = None
         self.jump_animation: QVariantAnimation | None = None
 
     def _set_frame(self, pixmap: QPixmap) -> None:
@@ -208,6 +244,7 @@ class PetWindow(QWidget):
     def _show_action_menu(self) -> None:
         if self.menu is None:
             self.menu = ActionMenu(self._select_action)
+        self.menu.set_status(self.care_days(), self.actions.hungry)
         self.menu.adjustSize()
         self.menu.move(self.pos() + QPoint(self.width() - self.menu.width(), -self.menu.height() - 8))
         self.menu.show()
@@ -215,11 +252,68 @@ class PetWindow(QWidget):
     def _select_action(self, name: str) -> None:
         if self.menu:
             self.menu.hide()
-        choices = ["wave", "shake", "walk", "think", "jump"]
+        if name == "food_menu":
+            self._show_food_menu()
+            return
+        choices = ["wave", "shake", "walk", "think", "jump", "drink_cola", "eat_burger", "eat_cake", "drink_coffee"]
         selected = random.choice(choices) if name == "random" else name
+        self._play_action(selected)
+
+    def _play_action(self, selected: str) -> None:
+        if selected in self.FOOD_ACTIONS:
+            self._mark_fed()
         if selected == "jump":
             self._animate_window_jump()
         self.actions.action(selected)
+
+    def _show_food_menu(self) -> None:
+        if self.food_menu is None:
+            self.food_menu = FoodMenu(self._select_food_action)
+        self.food_menu.adjustSize()
+        self.food_menu.move(self.pos() + QPoint(self.width() - self.food_menu.width(), -self.food_menu.height() - 8))
+        self.food_menu.show()
+
+    def _select_food_action(self, name: str) -> None:
+        if self.food_menu:
+            self.food_menu.hide()
+        self._play_action(name)
+
+    def _ensure_care_timestamps(self) -> None:
+        changed = False
+        now = datetime.now(timezone.utc).isoformat()
+        if self._parse_timestamp(self.settings.adopted_at) is None:
+            self.settings.adopted_at = now
+            changed = True
+        if self._parse_timestamp(self.settings.last_fed_at) is None:
+            self.settings.last_fed_at = now
+            changed = True
+        if changed:
+            self.store.save(self.settings)
+
+    @staticmethod
+    def _parse_timestamp(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+            return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+
+    def care_days(self) -> int:
+        adopted = self._parse_timestamp(self.settings.adopted_at) or datetime.now(timezone.utc)
+        return max(1, (datetime.now().astimezone().date() - adopted.astimezone().date()).days + 1)
+
+    def _update_hunger(self) -> None:
+        last_fed = self._parse_timestamp(self.settings.last_fed_at) or datetime.now(timezone.utc)
+        hungry = datetime.now(timezone.utc) - last_fed >= self.HUNGER_INTERVAL
+        if hungry != self.actions.hungry:
+            self.actions.set_hungry(hungry)
+
+    def _mark_fed(self) -> None:
+        self.settings.last_fed_at = datetime.now(timezone.utc).isoformat()
+        self.store.save(self.settings)
+        self.actions.set_hungry(False, play=False)
 
     def _animate_window_jump(self) -> None:
         if self.jump_animation is not None:
@@ -251,7 +345,8 @@ class PetWindow(QWidget):
         quit_action.triggered.connect(QApplication.quit)
         menu.addAction(settings_action)
         menu.addAction(reset)
-        menu.addAction("开机启动（即将推出）").setEnabled(False)
+        care = menu.addAction(f"已陪伴 Guga {self.care_days()} 天" + (" · 饿了" if self.actions.hungry else ""))
+        care.setEnabled(False)
         menu.addSeparator()
         menu.addAction(about)
         menu.addAction(quit_action)
@@ -265,9 +360,10 @@ class PetWindow(QWidget):
             self.store.save(self.settings)
 
     def _show_about(self) -> None:
-        AboutDialog(self).exec()
+        AboutDialog(self.care_days(), self).exec()
 
     def _reset_position(self) -> None:
-        self.settings = PetSettings(size=self.size_px)
+        self.settings.x = None
+        self.settings.y = None
         self.store.save(self.settings)
         self.show_at_default_position()
