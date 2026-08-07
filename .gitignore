@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.py[cod]
+
+build/
+dist/
+*.spec
+
+# Image-generation sources and QA artifacts; runtime frames remain tracked.
+assets/generated-strips/
+assets/repairs/
+assets/qa-generated-v2.png
+
+# Superseded or rejected animation sets.
+assets/actions/idle/
+assets/actions/wave/
+assets/actions/shake/
+assets/actions/spin/
+assets/actions/jump-v2/
+
