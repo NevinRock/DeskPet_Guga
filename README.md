@@ -2,7 +2,7 @@
 
 Guga is a standalone Windows desktop pet created by [@Nevin](https://github.com/NevinRock) in 2026.
 
-It is a transparent, always-on-top PySide6 application that runs locally without ChatGPT, Codex, a browser, an OpenAI API key, or an internet connection.
+It is a transparent, always-on-top PySide6 application that runs locally without a browser or an internet connection.
 
 ## Features
 
