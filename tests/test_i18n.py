@@ -30,8 +30,22 @@ class LanguageTests(unittest.TestCase):
                 self.assertIn("Language", [action.text() for action in settings_menu.actions()])
                 action_menu = ActionMenu(lambda _name: None, "en")
                 self.assertEqual(action_menu.findChildren(QPushButton)[0].text(), "👋  Wave")
+                action_menu.set_status("Creator", "2 hr 3 min", False)
+                self.assertEqual(
+                    action_menu.hunger_label.text(), "🍽️  Creator is happily full"
+                )
+                action_menu.set_status("Phoebe", "5 min", True)
+                self.assertEqual(
+                    action_menu.hunger_label.text(),
+                    "🍽️  Phoebe is hungry — please feed them",
+                )
                 self.assertEqual(SettingsDialog(210, lambda _size: None, "en", window).windowTitle(), "Guga Settings")
-                self.assertEqual(AboutDialog(1, "en", window).findChildren(QPushButton)[0].text(), "OK")
+                self.assertEqual(
+                    AboutDialog("Guga", "1 hr 2 min", "en", window)
+                    .findChildren(QPushButton)[0]
+                    .text(),
+                    "OK",
+                )
                 self.assertEqual(GitPushDialog(window.settings, window, "en").windowTitle(), "Automatic Git Push")
 
                 window._set_language("ja")

@@ -5,6 +5,7 @@ from enum import Enum, auto
 from PySide6.QtCore import QObject, Signal
 
 from .animation_manager import AnimationManager
+from .hunger import HungerLevel
 
 
 class PetState(Enum):
@@ -23,17 +24,24 @@ class ActionManager(QObject):
         self.animation = animation
         self.state = PetState.IDLE
         self.hungry = False
+        self.hunger_level = HungerLevel.FULL
         self.animation.animation_finished.connect(self._finished)
 
     def start_idle(self) -> None:
         self.state = PetState.HUNGRY if self.hungry else PetState.IDLE
         self.state_changed.emit(self.state)
-        self.animation.play("hungry" if self.hungry else "idle")
+        animation = "idle" if self.hunger_level is HungerLevel.FULL else self.hunger_level.value
+        self.animation.play(animation)
 
-    def set_hungry(self, hungry: bool, play: bool = True) -> None:
-        self.hungry = hungry
+    def set_hunger_level(self, level: HungerLevel, play: bool = True) -> None:
+        self.hunger_level = level
+        self.hungry = level is not HungerLevel.FULL
         if play and self.state is not PetState.DRAGGING:
             self.start_idle()
+
+    def set_hungry(self, hungry: bool, play: bool = True) -> None:
+        # Compatibility for callers that only distinguish full and hungry.
+        self.set_hunger_level(HungerLevel.HUNGRY if hungry else HungerLevel.FULL, play)
 
     def touch(self) -> None:
         if self.state is PetState.IDLE:
