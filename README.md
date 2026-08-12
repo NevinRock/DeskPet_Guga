@@ -15,7 +15,7 @@ It is a transparent, always-on-top PySide6 application that runs locally without
 - Drag-to-move interaction
 - Live pet-size adjustment from 120 to 320 px
 - Multi-monitor-aware default placement
-- Persistent care-day counter
+- Independent care timer for every skin, displayed as minutes, hours + minutes, or days + hours
 - Hunger state every 30 minutes until Guga is fed
 - Food submenu with cola, hamburger, cake, and coffee animations
 - Windows installer with an optional start-at-login shortcut
@@ -23,6 +23,7 @@ It is a transparent, always-on-top PySide6 application that runs locally without
 - Optional scheduled Git add/commit/push for a selected local repository
 - Calendar planning from the desktop pet through the Nevin calendar subscription service
 - Persistent Chinese, English, and Japanese interface switching
+- Persistent skin switching among Guga, Phoebe (Flying Fish Robe), Creator, and Guga (Eunuch), with matching action sets
 
 ## Run from source
 

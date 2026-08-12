@@ -1,0 +1,18 @@
+{
+  "guga": {
+    "assetPrefix": "assets/actions",
+    "labelKey": "skin_guga"
+  },
+  "phoebe": {
+    "assetPrefix": "assets/skins/phoebe/actions",
+    "labelKey": "skin_phoebe"
+  },
+  "author": {
+    "assetPrefix": "assets/skins/author/actions",
+    "labelKey": "skin_author"
+  },
+  "guga-eunuch": {
+    "assetPrefix": "assets/skins/guga-eunuch/actions",
+    "labelKey": "skin_guga_eunuch"
+  }
+}

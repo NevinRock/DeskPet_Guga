@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
 
@@ -12,7 +12,9 @@ class PetSettings:
     y: int | None = None
     size: int = 210
     language: str = "zh_CN"
+    skin: str = "guga"
     adopted_at: str | None = None
+    adopted_at_by_skin: dict[str, str] = field(default_factory=dict)
     last_fed_at: str | None = None
     git_auto_push_enabled: bool = False
     git_repo_path: str = ""

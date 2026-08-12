@@ -21,13 +21,15 @@ from PySide6.QtWidgets import (
 
 from .action_manager import ActionManager, PetState
 from .animation_manager import AnimationManager
+from .care import format_care_duration
 from .git_push import GitPushDialog, GitPushRunner
 from .i18n import LANGUAGES, tr
 from .interaction import opaque_at
+from .hunger import HUNGRY_AFTER, HungerLevel, hunger_level_for_elapsed
 from .schedule import ScheduleDialog
 from .settings import SettingsStore
 
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.8.0"
 
 
 class ActionMenu(QFrame):
@@ -44,14 +46,18 @@ class ActionMenu(QFrame):
         layout.addWidget(self.care_label)
         layout.addWidget(self.hunger_label)
         self.language = language
-        for key, action in [("action_wave", "wave"), ("action_shake", "shake"), ("action_walk", "walk"), ("action_think", "think"), ("action_jump", "jump"), ("action_food", "food_menu"), ("action_random", "random")]:
+        for key, action in [("action_wave", "wave"), ("action_shake", "shake"), ("action_walk", "walk"), ("action_think", "think"), ("action_jump", "jump"), ("action_special", "special"), ("action_food", "food_menu"), ("action_random", "random")]:
             button = QPushButton(tr(language, key))
             button.clicked.connect(lambda checked=False, value=action: trigger(value))
             layout.addWidget(button)
 
-    def set_status(self, care_days: int, hungry: bool) -> None:
-        self.care_label.setText(tr(self.language, "care_days", days=care_days))
-        self.hunger_label.setText(tr(self.language, "hungry" if hungry else "full"))
+    def set_status(self, pet_name: str, care_duration: str, hungry: bool) -> None:
+        self.care_label.setText(
+            tr(self.language, "care_duration", pet=pet_name, duration=care_duration)
+        )
+        self.hunger_label.setText(
+            tr(self.language, "hungry" if hungry else "full", pet=pet_name)
+        )
 
 
 class FoodMenu(QFrame):
@@ -107,7 +113,9 @@ class SettingsDialog(QDialog):
 
 
 class AboutDialog(QDialog):
-    def __init__(self, care_days: int, language: str, parent: QWidget) -> None:
+    def __init__(
+        self, pet_name: str, care_duration: str, language: str, parent: QWidget
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("About Guga")
         self.setFixedWidth(330)
@@ -131,7 +139,9 @@ class AboutDialog(QDialog):
         creator.setObjectName("meta")
         license_label = QLabel(tr(language, "mit_license"))
         license_label.setObjectName("meta")
-        care_label = QLabel(tr(language, "together_days", days=care_days))
+        care_label = QLabel(
+            tr(language, "together_duration", pet=pet_name, duration=care_duration)
+        )
         care_label.setObjectName("meta")
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
         buttons.button(QDialogButtonBox.StandardButton.Ok).setText(tr(language, "ok"))
@@ -149,7 +159,7 @@ class AboutDialog(QDialog):
 class PetWindow(QWidget):
     DRAG_THRESHOLD = 7
     TOUCH_COOLDOWN_MS = 1500
-    HUNGER_INTERVAL = timedelta(minutes=30)
+    HUNGER_INTERVAL = HUNGRY_AFTER
     FOOD_ACTIONS = frozenset({"drink_cola", "eat_burger", "eat_cake", "drink_coffee"})
 
     def __init__(self) -> None:
@@ -163,7 +173,6 @@ class PetWindow(QWidget):
         if self.settings.language not in LANGUAGES:
             self.settings.language = "zh_CN"
             self.store.save(self.settings)
-        self._ensure_care_timestamps()
         self.size_px = self.settings.size
         self.setFixedSize(self.size_px, self.size_px)
 
@@ -172,7 +181,11 @@ class PetWindow(QWidget):
         self.sprite.setGeometry(self.rect())
         self.sprite.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.current_pixmap = QPixmap()
-        self.animation = AnimationManager()
+        self.animation = AnimationManager(self.settings.skin)
+        if self.settings.skin != self.animation.skin:
+            self.settings.skin = self.animation.skin
+            self.store.save(self.settings)
+        self._ensure_care_timestamps()
         self.actions = ActionManager(self.animation)
         self.animation.frame_changed.connect(self._set_frame)
         self.actions.start_idle()
@@ -269,7 +282,9 @@ class PetWindow(QWidget):
     def _show_action_menu(self) -> None:
         if self.menu is None:
             self.menu = ActionMenu(self._select_action, self.settings.language)
-        self.menu.set_status(self.care_days(), self.actions.hungry)
+        self.menu.set_status(
+            self.current_skin_name(), self.care_duration_text(), self.actions.hungry
+        )
         self.menu.adjustSize()
         self.menu.move(self.pos() + QPoint(self.width() - self.menu.width(), -self.menu.height() - 8))
         self.menu.show()
@@ -280,7 +295,7 @@ class PetWindow(QWidget):
         if name == "food_menu":
             self._show_food_menu()
             return
-        choices = ["wave", "shake", "walk", "think", "jump", "drink_cola", "eat_burger", "eat_cake", "drink_coffee"]
+        choices = ["wave", "shake", "walk", "think", "jump", "special", "drink_cola", "eat_burger", "eat_cake", "drink_coffee"]
         selected = random.choice(choices) if name == "random" else name
         self._play_action(selected)
 
@@ -305,15 +320,36 @@ class PetWindow(QWidget):
 
     def _ensure_care_timestamps(self) -> None:
         changed = False
-        now = datetime.now(timezone.utc).isoformat()
-        if self._parse_timestamp(self.settings.adopted_at) is None:
-            self.settings.adopted_at = now
+        now = datetime.now(timezone.utc)
+        if not isinstance(self.settings.adopted_at_by_skin, dict):
+            self.settings.adopted_at_by_skin = {}
+            changed = True
+
+        legacy_adopted = self._parse_timestamp(self.settings.adopted_at)
+        if (
+            legacy_adopted is not None
+            and self._parse_timestamp(self.settings.adopted_at_by_skin.get("guga")) is None
+        ):
+            self.settings.adopted_at_by_skin["guga"] = legacy_adopted.isoformat()
+            changed = True
+        if legacy_adopted is None:
+            self.settings.adopted_at = now.isoformat()
+            changed = True
+        if self._ensure_skin_adopted(self.settings.skin, now):
             changed = True
         if self._parse_timestamp(self.settings.last_fed_at) is None:
-            self.settings.last_fed_at = now
+            self.settings.last_fed_at = now.isoformat()
             changed = True
         if changed:
             self.store.save(self.settings)
+
+    def _ensure_skin_adopted(self, skin: str, now: datetime | None = None) -> bool:
+        if not isinstance(self.settings.adopted_at_by_skin, dict):
+            self.settings.adopted_at_by_skin = {}
+        if self._parse_timestamp(self.settings.adopted_at_by_skin.get(skin)) is not None:
+            return False
+        self.settings.adopted_at_by_skin[skin] = (now or datetime.now(timezone.utc)).isoformat()
+        return True
 
     @staticmethod
     def _parse_timestamp(value: str | None) -> datetime | None:
@@ -322,23 +358,34 @@ class PetWindow(QWidget):
         try:
             parsed = datetime.fromisoformat(value)
             return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
-        except ValueError:
+        except (TypeError, ValueError):
             return None
 
-    def care_days(self) -> int:
-        adopted = self._parse_timestamp(self.settings.adopted_at) or datetime.now(timezone.utc)
-        return max(1, (datetime.now().astimezone().date() - adopted.astimezone().date()).days + 1)
+    def current_skin_name(self) -> str:
+        skin = self.animation.skins[self.settings.skin]
+        return tr(self.settings.language, skin["labelKey"])
+
+    def care_elapsed(self, now: datetime | None = None) -> timedelta:
+        current = now or datetime.now(timezone.utc)
+        adopted = self._parse_timestamp(
+            self.settings.adopted_at_by_skin.get(self.settings.skin)
+        ) or current
+        return max(timedelta(0), current - adopted)
+
+    def care_duration_text(self, now: datetime | None = None) -> str:
+        return format_care_duration(self.settings.language, self.care_elapsed(now))
 
     def _update_hunger(self) -> None:
-        last_fed = self._parse_timestamp(self.settings.last_fed_at) or datetime.now(timezone.utc)
-        hungry = datetime.now(timezone.utc) - last_fed >= self.HUNGER_INTERVAL
-        if hungry != self.actions.hungry:
-            self.actions.set_hungry(hungry)
+        now = datetime.now(timezone.utc)
+        last_fed = self._parse_timestamp(self.settings.last_fed_at) or now
+        level = hunger_level_for_elapsed(now - last_fed)
+        if level is not self.actions.hunger_level:
+            self.actions.set_hunger_level(level)
 
     def _mark_fed(self) -> None:
         self.settings.last_fed_at = datetime.now(timezone.utc).isoformat()
         self.store.save(self.settings)
-        self.actions.set_hungry(False, play=False)
+        self.actions.set_hunger_level(HungerLevel.FULL, play=False)
 
     def _animate_window_jump(self) -> None:
         if self.jump_animation is not None:
@@ -370,6 +417,14 @@ class PetWindow(QWidget):
         menu.addMenu(settings_menu)
         settings_action = QAction(tr(language, "menu_appearance"), settings_menu)
         settings_action.triggered.connect(self._show_settings)
+        skin_menu = QMenu(tr(language, "menu_skin"), settings_menu)
+        for skin_id, skin in self.animation.skins.items():
+            label_key = skin["labelKey"]
+            skin_action = QAction(tr(language, label_key), skin_menu)
+            skin_action.setCheckable(True)
+            skin_action.setChecked(self.settings.skin == skin_id)
+            skin_action.triggered.connect(lambda checked=False, value=skin_id: self._set_skin(value))
+            skin_menu.addAction(skin_action)
         about = QAction(tr(language, "menu_version"), settings_menu)
         about.triggered.connect(self._show_about)
         git_push = QAction(tr(language, "menu_git_push"), settings_menu)
@@ -386,6 +441,7 @@ class PetWindow(QWidget):
         quit_action = QAction(tr(language, "menu_quit"), menu)
         quit_action.triggered.connect(QApplication.quit)
         settings_menu.addAction(settings_action)
+        settings_menu.addMenu(skin_menu)
         settings_menu.addAction(about)
         settings_menu.addSeparator()
         settings_menu.addAction(schedule)
@@ -393,7 +449,15 @@ class PetWindow(QWidget):
         settings_menu.addSeparator()
         settings_menu.addMenu(language_menu)
         menu.addAction(reset)
-        care = menu.addAction(tr(language, "menu_care", days=self.care_days(), hungry=tr(language, "menu_hungry_suffix") if self.actions.hungry else ""))
+        care = menu.addAction(
+            tr(
+                language,
+                "menu_care",
+                pet=self.current_skin_name(),
+                duration=self.care_duration_text(),
+                hungry=tr(language, "menu_hungry_suffix") if self.actions.hungry else "",
+            )
+        )
         care.setEnabled(False)
         menu.addSeparator()
         menu.addAction(quit_action)
@@ -407,7 +471,12 @@ class PetWindow(QWidget):
             self.store.save(self.settings)
 
     def _show_about(self) -> None:
-        AboutDialog(self.care_days(), self.settings.language, self).exec()
+        AboutDialog(
+            self.current_skin_name(),
+            self.care_duration_text(),
+            self.settings.language,
+            self,
+        ).exec()
 
     def _show_git_push_settings(self) -> None:
         dialog = GitPushDialog(self.settings, self, self.settings.language)
@@ -495,6 +564,15 @@ class PetWindow(QWidget):
             self.food_menu.close()
             self.food_menu.deleteLater()
             self.food_menu = None
+
+    def _set_skin(self, skin: str) -> None:
+        if skin == self.settings.skin:
+            return
+        self.animation.set_skin(skin)
+        self.settings.skin = skin
+        self._ensure_skin_adopted(skin)
+        self.store.save(self.settings)
+        self.actions.start_idle()
 
     def _reset_position(self) -> None:
         self.settings.x = None

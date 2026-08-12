@@ -6,6 +6,8 @@ build/
 dist/
 installer-output/
 *.spec
+tmp/
+qa/
 
 # Image-generation sources and QA artifacts; runtime frames remain tracked.
 assets/generated-strips/
